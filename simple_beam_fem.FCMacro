@@ -1,0 +1,74 @@
+# Import packages
+import ObjectsFem
+import FemGui
+from femtools import ccxtools
+# Create new document
+doc = FreeCAD.newDocument()
+#Add beam objecto using a parameterized box
+beam = doc.addObject("Part::Box", "Beam")
+doc.recompute()
+beam.Length = 8e3
+beam.Width = 1e3
+beam.Height = 1e3
+beam.ViewObject.Transparency = 60
+# Show isometric view
+import FreeCADGui
+FreeCADGui.ActiveDocument.activeView().viewAxonometric()
+FreeCADGui.SendMsgToActiveView("ViewFit")
+# Create Finite Element Method (FEM) Analysis
+analysis_object = ObjectsFem.makeAnalysis(doc, "Analysis")
+# Create solver (CcxTools)
+solver_object = ObjectsFem.makeSolverCalculixCcxTools(doc, "CalculiX")
+solver_object.GeometricalNonlinearity = 'linear'
+solver_object.ThermoMechSteadyState = True
+solver_object.MatrixSolverType = 'default'
+solver_object.IterationsControlParameterTimeUse = False
+analysis_object.addObject(solver_object)
+# Set object material
+material_object = ObjectsFem.makeMaterialSolid(doc, "SolidMaterial")
+mat = material_object.Material
+mat['Name'] = "Steel-Generic"
+mat['YoungsModulus'] = "210000 MPa"
+mat['PoissonRatio'] = "0.30"
+mat['Density'] = "7900 kg/m^3"
+material_object.Material = mat
+analysis_object.addObject(material_object)
+# Add constraints to the beam
+# Left side is fixed to a wall
+fixed_constraint = ObjectsFem.makeConstraintFixed(doc, "FemConstraintFixed")
+fixed_constraint.References = [(beam, "Face1")]
+analysis_object.addObject(fixed_constraint)
+# Add force constraint
+# Right side has a load 
+force_constraint = ObjectsFem.makeConstraintForce(doc, "FemConstraintForce")
+force_constraint.References = [(beam, "Face2")]
+force_constraint.Force = 98000000.0
+force_constraint.Direction = (beam, ["Edge5"])
+force_constraint.Reversed = True
+analysis_object.addObject(force_constraint)
+# Create a triangular mesh of order second order
+mesh = doc.addObject('Fem::FemMeshShapeNetgenObject', 'FEMMeshNetgen')
+mesh.Shape = beam
+mesh.MaxSize = 1000
+mesh.Fineness = "Moderate"
+mesh.Optimize = True
+mesh.SecondOrder = True
+doc.recompute()
+analysis_object.addObject(mesh)
+# Calculate FEM
+FemGui.setActiveAnalysis(doc.Analysis)
+from femtools import ccxtools
+fea = ccxtools.FemToolsCcx()
+fea.purge_results()
+fea.run()
+# Configure visualization
+warp_vector = doc.addObject('Fem::FemPostWarpVectorFilter','WarpVector')
+p_results = doc.Pipeline_CCX_Results
+mesh.Visibility = False
+p_results.Visibility = False
+p_results.Filter = warp_vector
+doc.recompute()
+warp_vector.Factor = 1.0
+warp_vector.ViewObject.DisplayMode = "Surface with Edges"
+warp_vector.ViewObject.Field = "Displacement"
+doc.recompute()
